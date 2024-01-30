@@ -10,11 +10,14 @@ import multiprocessing
 import random
 import threading
 import time
+from concurrent.futures import ProcessPoolExecutor
 
 base_array = [random.randint(1, 100) for _ in range(1_000_000)]
 
 counter_threading = 0
 result_threading = 0
+
+
 def calc_threading(arr):
     global result_threading, counter_threading
     try:
@@ -25,14 +28,8 @@ def calc_threading(arr):
         pass
 
 
-def calc_multiprocessing(arr, res, cnt):
-    with cnt.get_lock(), res.get_lock():
-        while cnt.value < len(arr):
-            res.value += arr[cnt.value]
-            cnt.value += 1
-
-
-
+def calc_multiprocessing(arr):
+    return sum(arr)
 
 
 counter_asyncio = 0
@@ -59,7 +56,6 @@ if __name__ == '__main__':
         result += base_array[i]
     print(f"Sync calculation {time.time() - start_time:.2f} seconds (result: {result})\n")
 
-
     threads = []
     start_time = time.time()
     for i in range(5):
@@ -70,32 +66,26 @@ if __name__ == '__main__':
         t.join()
     print(f"Calculation via threading "
           f"{time.time() - start_time:>10.2f} "
-          f"seconds (result: {result_threading}, "
-          f"counter: {counter_threading})")
-
-    processes = []
-    arr_multiprocessing = multiprocessing.Array('i', base_array)
-    counter_multiprocessing = multiprocessing.Value('i', 0)
-    result_multiprocessing = multiprocessing.Value('i', 0)
+          f"seconds (result: {result_threading})")
 
     start_time = time.time()
-    operation_per_proc = len(base_array) // 5
-    for i in range(5):
-        p = multiprocessing.Process(target=calc_multiprocessing, args=(arr_multiprocessing,
-                                                                       result_multiprocessing,
-                                                                       counter_multiprocessing))
-        processes.append(p)
-        p.start()
-    for p in processes:
-        p.join()
+
+    procs = multiprocessing.cpu_count()
+    operation_per_cpu = int(len(base_array) / procs)
+    print(f"CPU: {procs}")
+
+    with ProcessPoolExecutor(max_workers=procs) as executor:
+        futures = [executor.submit(calc_multiprocessing, base_array[i:i + operation_per_cpu]) for i in
+                   range(0, len(base_array), operation_per_cpu)]
+        mid_results = [future.result() for future in futures]
+        result_multiprocessing = sum(mid_results)
+
     print(f"Calculation via multiprocessing "
           f"{time.time() - start_time:.2f} seconds "
-          f"(result: {result_multiprocessing.value:>5}, "
-          f"counter: {counter_multiprocessing.value})")
+          f"(result: {result_multiprocessing:>5})")
 
     start_time = time.time()
     asyncio.run(main())
     print(f"Calculation via asyncio "
           f"{time.time() - start_time:>12.2f} seconds "
-          f"(result: {result_asyncio}, "
-          f"counter: {counter_asyncio})")
+          f"(result: {result_asyncio})")
